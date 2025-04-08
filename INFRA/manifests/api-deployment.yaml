@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+spec:
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      initContainers:
+      - name: init-db-schema
+        image: busybox
+        command:
+          - sh
+          - -c
+          - |
+            until mysql -h db -u root -p$MYSQL_ROOT_PASSWORD -e "SELECT 1"; do
+              sleep 1
+              echo "Aguardando MySQL..."
+            done
+
+            mysql -h db -u root -p$MYSQL_ROOT_PASSWORD -e "CREATE DATABASE IF NOT EXISTS ${DATABASE_NAME};"
+
+            mysql -h db -u root -p$MYSQL_ROOT_PASSWORD -e "USE ${DATABASE_NAME}; CREATE TABLE IF NOT EXISTS carros (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              marca VARCHAR(255),
+              modelo VARCHAR(255),
+              preco DECIMAL(10,3),
+              descricao TEXT
+            );"
+        env:
+          - name: MYSQL_ROOT_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: mysql-secrets
+                key: mysql-root-password
+          - name: DATABASE_NAME
+            valueFrom:
+              secretKeyRef:
+                name: mysql-secrets
+                key: mysql-database-name
+        resources:  
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+      containers:
+      - name: fastapi-app
+        image: thiagomussolini/fast_api:v1
+        ports:
+          - containerPort: 8000
+        env:
+          - name: DATABASE_USER
+            valueFrom:
+              secretKeyRef:
+                name: mysql-secrets
+                key: mysql-username
+          - name: DATABASE_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: mysql-secrets
+                key: mysql-root-password
+          - name: DATABASE_NAME
+            valueFrom:
+              secretKeyRef:
+                name: mysql-secrets
+                key: mysql-database-name
+          - name: DATABASE_HOST
+            value: db
+        resources:  
+          requests:
+            memory: "32Mi"
+            cpu: "30m"
+          limits:
+            memory: "64Mi"
+            cpu: "50m"
+
+      tolerations:
+        - key: "node.kubernetes.io/unreachable"
+          operator: "Exists"
+          effect: "NoExecute"
+          tolerationSeconds: 300
+        - key: "node.kubernetes.io/not-ready"
+          operator: "Exists"
+          effect: "NoExecute"
+          tolerationSeconds: 300

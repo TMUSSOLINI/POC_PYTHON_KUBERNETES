@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      io.kompose.service: db
+  template:
+    metadata:
+      labels:
+        io.kompose.service: db
+    spec:
+      containers:
+      - name: banco-mysql
+        image: mysql:5.7 
+        ports:
+          - containerPort: 3306
+        env:
+          - name: MYSQL_ROOT_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: mysql-secrets
+                key: mysql-root-password
+          - name: MYSQL_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: mysql-secrets
+                key: mysql-user-password
+          - name: MYSQL_DATABASE
+            valueFrom:
+              secretKeyRef:
+                name: mysql-secrets
+                key: mysql-database-name
+          - name: MYSQL_USER
+            valueFrom:
+              secretKeyRef:
+                name: mysql-secrets
+                key: mysql-username
+          - name: MYSQL_INITDB_SKIP_TZINFO
+            value: "1"
+        command:
+          - sh
+          - -c
+          - |
+            echo "ALTER USER 'root'@'%' IDENTIFIED BY '${MYSQL_ROOT_PASSWORD}';" > /docker-entrypoint-initdb.d/init.sql
+            echo "GRANT ALL PRIVILEGES ON ${MYSQL_DATABASE}.* TO '${MYSQL_USER}'@'%';" >> /docker-entrypoint-initdb.d/init.sql
+            echo "FLUSH PRIVILEGES;" >> /docker-entrypoint-initdb.d/init.sql
+            exec docker-entrypoint.sh mysqld --performance_schema=OFF --innodb_buffer_pool_size=32M
+        resources:
+          requests:
+            memory: "48Mi" 
+            cpu: "30m"
+          limits:
+            memory: "128Mi" 
+            cpu: "100m"
+        livenessProbe:
+          exec:
+            command:
+              - mysqladmin
+              - ping
+              - -h
+              - localhost
+              - -u
+              - root
+              - --password=${MYSQL_ROOT_PASSWORD}
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+        readinessProbe:
+          exec:
+            command:
+              - mysqladmin
+              - ping
+              - -h
+              - localhost
+              - -u
+              - root
+              - --password=${MYSQL_ROOT_PASSWORD}
+          initialDelaySeconds: 5
+          periodSeconds: 2
+          timeoutSeconds: 1
+      tolerations:
+      - key: "node.kubernetes.io/unreachable"
+        operator: "Exists"
+        effect: "NoExecute"
+        tolerationSeconds: 300
+      - key: "node.kubernetes.io/not-ready"
+        operator: "Exists"
+        effect: "NoExecute"
+        tolerationSeconds: 300
